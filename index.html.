@@ -161,7 +161,7 @@
    Pon aquí la carpeta y la API key para que cualquier tablet
    que abra la página ya quede conectada sin configurar nada.
    ========================================================= */
-const DEFAULT_FOLDER  = '';   // link o ID de la carpeta de Drive
+const DEFAULT_FOLDER  = 'https://drive.google.com/drive/folders/1_3sHRRNucMFUg2hjFGFOX5id8ddzjHts?usp=drive_link';   // link o ID de la carpeta de Drive
 const DEFAULT_API_KEY = 'AIzaSyD7HOtefLQnGigoo7mDZ_uyAJ8JGgEgG6c';
 const DEFAULT_EVERY_MIN = 5;
 
