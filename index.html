@@ -24,7 +24,7 @@
   button.drive span{color:var(--green);font-weight:400;margin-left:8px}
   button:disabled{opacity:.45;cursor:not-allowed}
   .summary{margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:12px 14px}
-  .chips{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .chips{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
   .st{font-size:13px}
   .st .t{font-weight:700;display:flex;align-items:center;gap:6px}
   .dot{width:10px;height:10px;border-radius:50%;background:#cbd0d6;display:inline-block;flex:none}
@@ -74,7 +74,10 @@
   table.hist td.g{text-align:center}
   .tag{font-size:11px;padding:2px 6px;border-radius:4px;background:#eee;color:#444}
   .row{display:flex;justify-content:space-between;align-items:center;gap:10px}
-  @media (max-width:760px){.chips{grid-template-columns:1fr}}
+  @media (max-width:900px){.chips{grid-template-columns:repeat(2,1fr)}}
+  td.cl{font-weight:700;font-size:1.05em}
+  td.cl.A{background:#ffe5e5;color:#d10000;font-size:2.2em;font-weight:900;line-height:1}
+  table.hist td.cl.A{font-size:1.6em}td.cl.B{background:#fff1c2;color:#6b4e00}td.cl.C{background:#ffe0cc;color:#7a3300}td.cl.D{background:#f8d7da;color:#7a1020}td.cl.NA{color:#999;font-weight:400}
 </style>
 </head>
 <body>
@@ -100,6 +103,7 @@
         <div class="st"><div class="t"><span class="dot" id="dStock"></span>StockSummaryReport</div><div class="d" id="sStock">Sin cargar</div></div>
         <div class="st"><div class="t"><span class="dot" id="dOvr"></span>OrderVisibilityUnitDetails</div><div class="d" id="sOvr">Sin cargar</div></div>
         <div class="st"><div class="t"><span class="dot" id="dLoc"></span>Ubicaciones (Case)</div><div class="d" id="sLoc">Sin cargar</div></div>
+        <div class="st"><div class="t"><span class="dot" id="dAbc"></span>ABC WEEK (Class)</div><div class="d" id="sAbc">Sin cargar</div></div>
       </div>
       <div class="links"><a id="lnkVer">Ver archivos</a><a id="lnkQuitar">Quitar todos</a></div>
       <table id="fileList" hidden>
@@ -148,8 +152,8 @@
     <div class="row"><h2 style="margin:0">Historial de escaneos</h2>
       <div><button class="sec" id="btnCsv">Exportar CSV</button> <button class="sec" id="btnClr">Limpiar</button></div></div>
     <table class="hist" style="margin-top:10px">
-      <thead><tr><th>Hora</th><th>Case</th><th>Item Number</th><th style="text-align:center">Gender</th><th>Origen</th></tr></thead>
-      <tbody id="histBody"><tr><td colspan="5" style="color:#999">Sin escaneos</td></tr></tbody>
+      <thead><tr><th>Hora</th><th>Case</th><th>Item Number</th><th style="text-align:center">Gender</th><th style="text-align:center">Class</th><th>Origen</th></tr></thead>
+      <tbody id="histBody"><tr><td colspan="6" style="color:#999">Sin escaneos</td></tr></tbody>
     </table>
   </section>
 
@@ -167,11 +171,11 @@ const DEFAULT_EVERY_MIN = 5;
 
 /* ===================== Estado ===================== */
 const FILES = new Map();   // key -> {key, id, name, type, source, modified, rows, data}
-const DB = { stock:new Map(), prefix:new Map(), style:new Map(), ovr:new Set(), cases:new Map() };
+const DB = { stock:new Map(), prefix:new Map(), style:new Map(), ovr:new Set(), cases:new Map(), abc:new Map() };
 const hist = [];
 const $ = id => document.getElementById(id);
 const up = v => (v == null ? '' : String(v)).trim().toUpperCase();
-const TYPE_LABEL = {stock:'StockSummary', ovr:'OrderVisibility', loc:'Ubicación'};
+const TYPE_LABEL = {stock:'StockSummary', ovr:'OrderVisibility', loc:'Ubicación', abc:'ABC WEEK'};
 
 function normGender(g){
   const v = up(g);
@@ -180,6 +184,7 @@ function normGender(g){
 function fileType(name){
   const n = name.replace(/^.*[\\/]/, '').toUpperCase();
   if (n.startsWith('STOCKSUMMARYREPORT')) return 'stock';
+  if (n.replace(/[^A-Z0-9]/g,'').startsWith('ABCWEEK')) return 'abc';
   if (n.startsWith('ORDERVISIBILITYUNITDETAILSREPORT') || n.startsWith('ORDERSVISIBILITYUNITDETAILSREPORT')) return 'ovr';
   if (/^(STG|CP|SRT|E|F)/.test(n)) return 'loc';
   return null;
@@ -217,6 +222,14 @@ function parseBuffer(buf, type){
       const it = up(row[ci]); if (!it) continue; items.push(it); gens.push(normGender(row[cg])); }
     return {items, gens, rows: items.length};
   }
+  if (type === 'abc'){
+    const rows = rowsOf(pickSheet(wb, ['ABC'])), h = rows[0] || [];
+    const ci = colIdx(h, ['Item','Item Number','ItemNumber'], 0), cc = colIdx(h, ['Class'], 5);
+    const items = [], cls = [];
+    for (let r = 1; r < rows.length; r++){ const row = rows[r]; if (!row) continue;
+      const it = up(row[ci]); if (!it) continue; items.push(it); cls.push(up(row[cc])); }
+    return {items, cls, rows: items.length};
+  }
   if (type === 'ovr'){
     const rows = rowsOf(pickSheet(wb, ['OrderItems'])), h = rows[0] || [];
     const ci = colIdx(h, ['Item Number','ItemNumber'], 3);
@@ -235,12 +248,14 @@ function parseBuffer(buf, type){
 /* ===================== Índices ===================== */
 function bump(map, k, g){ if (!k) return; let o = map.get(k); if (!o){ o = {WOMEN:0, MEN:0}; map.set(k, o); } o[g]++; }
 function rebuild(){
-  DB.stock.clear(); DB.prefix.clear(); DB.style.clear(); DB.ovr.clear(); DB.cases.clear();
+  DB.stock.clear(); DB.prefix.clear(); DB.style.clear(); DB.ovr.clear(); DB.cases.clear(); DB.abc.clear();
   for (const f of FILES.values()){
     const d = f.data;
     if (f.type === 'stock'){
       for (let k = 0; k < d.items.length; k++){ const it = d.items[k], g = d.gens[k];
         DB.stock.set(it, g); bump(DB.prefix, it.slice(0,9), g); bump(DB.style, it.split('-')[0], g); }
+    } else if (f.type === 'abc'){
+      for (let k = 0; k < d.items.length; k++) if (d.cls[k]) DB.abc.set(d.items[k], d.cls[k]);
     } else if (f.type === 'ovr'){
       for (const it of d.items) DB.ovr.add(it);
     } else {
@@ -253,13 +268,14 @@ function rebuild(){
 function refreshStatus(){
   const cnt = t => [...FILES.values()].filter(f => f.type === t).length;
   const on = (d, v) => $(d).classList.toggle('on', v);
-  on('dStock', DB.stock.size > 0); on('dOvr', DB.ovr.size > 0); on('dLoc', DB.cases.size > 0);
+  on('dStock', DB.stock.size > 0); on('dOvr', DB.ovr.size > 0); on('dLoc', DB.cases.size > 0); on('dAbc', DB.abc.size > 0);
+  $('sAbc').textContent = DB.abc.size ? `${DB.abc.size.toLocaleString()} Items con Class` : 'Sin cargar';
   $('sStock').textContent = DB.stock.size ? `${DB.stock.size.toLocaleString()} SKUs · ${DB.prefix.size.toLocaleString()} claves de 9 caracteres` : 'Sin cargar';
   $('sOvr').textContent   = DB.ovr.size ? `${DB.ovr.size.toLocaleString()} Items únicos` : 'Sin cargar';
   $('sLoc').textContent   = DB.cases.size ? `${DB.cases.size.toLocaleString()} Cases · ${cnt('loc')} archivo(s)` : 'Sin cargar';
   const ready = DB.stock.size > 0;
   $('caseIn').disabled = !ready; $('btnBuscar').disabled = !ready;
-  const order = {stock:0, ovr:1, loc:2};
+  const order = {stock:0, ovr:1, abc:2, loc:3};
   $('fileList').querySelector('tbody').innerHTML = [...FILES.values()]
     .sort((a,b) => order[a.type]-order[b.type] || a.name.localeCompare(b.name))
     .map(f => `<tr><td>${esc(f.name)}</td><td>${TYPE_LABEL[f.type]}</td><td>${f.source === 'drive' ? '☁ Drive' : '💻 Local'}</td><td>${(f.data.rows||0).toLocaleString()}</td><td>${f.modified ? new Date(f.modified).toLocaleString('es-MX') : '—'}</td></tr>`).join('')
@@ -423,6 +439,10 @@ function genderOf(itemRaw){
   return {g, how, detail: mixed ? `Clave mixta: ${o.WOMEN} WOMEN / ${o.MEN} MEN (se toma la mayoría)` : `${o.WOMEN + o.MEN} SKU(s) con la misma clave`};
 }
 
+function classOf(it){ return DB.abc.get(up(it)) || ''; }
+function classTd(cl){ return `<td class="cl ${cl ? esc(cl) : 'NA'}">${cl ? esc(cl) : '—'}</td>`; }
+const RES_HEAD = '<thead><tr><th>Case</th><th>Item Number</th><th>Gender</th><th>Class</th></tr></thead>';
+
 /* ===================== Búsqueda por Case ===================== */
 function buscar(){
   const c = up($('caseIn').value);
@@ -443,10 +463,11 @@ function buscar(){
   }
   const rows = show.map(it => {
     const r = genderOf(it), g = r ? r.g : 'WOMEN';
-    addHist(c, it, g, list.length > 1 ? 'Multi-SKU + OVR' : 'Caja 1 SKU');
-    return `<tr><td>${esc(c)}</td><td>${esc(it)}</td><td class="g ${g}">${g}</td></tr>`;
+    const cl = classOf(it);
+    addHist(c, it, g, cl, list.length > 1 ? 'Multi-SKU + OVR' : 'Caja 1 SKU');
+    return `<tr><td>${esc(c)}</td><td>${esc(it)}</td><td class="g ${g}">${g}</td>${classTd(cl)}</tr>`;
   }).join('');
-  $('result').innerHTML = `<table class="res"><thead><tr><th>Case</th><th>Item Number</th><th>Gender</th></tr></thead><tbody>${rows}</tbody></table>` + (note ? `<div class="sub">${note}</div>` : '');
+  $('result').innerHTML = `<table class="res">${RES_HEAD}<tbody>${rows}</tbody></table>` + (note ? `<div class="sub">${note}</div>` : '');
   $('caseIn').focus();
 }
 
@@ -463,10 +484,11 @@ function wireManual(c){
     if (v.length < 9){ out.innerHTML = v ? `<div class="sub">Faltan ${9 - v.length} caracter(es)…</div>` : ''; return; }
     const r = genderOf(v);
     if (!r){ out.innerHTML = `<div class="msg warn">No hay ningún Item en el StockSummaryReport que comience con <b>${esc(v.slice(0,9))}</b>.</div>`; return; }
-    out.innerHTML = `<table class="res"><thead><tr><th>Case</th><th>Item Number</th><th>Gender</th></tr></thead>
-      <tbody><tr><td>${esc(c)}</td><td>${esc(v)}</td><td class="g ${r.g}">${r.g}</td></tr></tbody></table>
+    const cl = classOf(v);
+    out.innerHTML = `<table class="res">${RES_HEAD}
+      <tbody><tr><td>${esc(c)}</td><td>${esc(v)}</td><td class="g ${r.g}">${r.g}</td>${classTd(cl)}</tr></tbody></table>
       <div class="sub">Coincidencia por ${r.how === 'exacto' ? 'Item exacto' : r.how}${r.detail ? ' · ' + r.detail : ''}</div>`;
-    if (commit){ addHist(c, v, r.g, 'Manual'); inp.value = ''; $('caseIn').focus(); }
+    if (commit){ addHist(c, v, r.g, cl, 'Manual'); inp.value = ''; $('caseIn').focus(); }
   };
   inp.addEventListener('input', () => run(false));
   inp.addEventListener('keydown', e => { if (e.key === 'Enter') run(true); });
@@ -474,11 +496,11 @@ function wireManual(c){
 }
 
 /* ===================== Historial ===================== */
-function addHist(c, it, g, src){ hist.unshift({t:new Date().toLocaleTimeString('es-MX'), c, it, g, src}); renderHist(); }
+function addHist(c, it, g, cl, src){ hist.unshift({t:new Date().toLocaleTimeString('es-MX'), c, it, g, cl, src}); renderHist(); }
 function renderHist(){
   $('histBody').innerHTML = hist.length ? hist.slice(0,300).map(h =>
-    `<tr><td>${h.t}</td><td>${esc(h.c)}</td><td>${esc(h.it)}</td><td class="g ${h.g}">${h.g}</td><td><span class="tag">${h.src}</span></td></tr>`).join('')
-    : '<tr><td colspan="5" style="color:#999">Sin escaneos</td></tr>';
+    `<tr><td>${h.t}</td><td>${esc(h.c)}</td><td>${esc(h.it)}</td><td class="g ${h.g}">${h.g}</td>${classTd(h.cl).replace('<td class="cl','<td style="text-align:center" class="cl')}<td><span class="tag">${h.src}</span></td></tr>`).join('')
+    : '<tr><td colspan="6" style="color:#999">Sin escaneos</td></tr>';
 }
 
 /* ===================== Eventos ===================== */
@@ -502,7 +524,7 @@ $('caseIn').addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); 
 $('btnBuscar').onclick = buscar;
 $('btnClr').onclick = () => { hist.length = 0; renderHist(); };
 $('btnCsv').onclick = () => {
-  const csv = 'Hora,Case,Item Number,Gender,Origen\n' + hist.map(h => [h.t,h.c,h.it,h.g,h.src].join(',')).join('\n');
+  const csv = 'Hora,Case,Item Number,Gender,Class,Origen\n' + hist.map(h => [h.t,h.c,h.it,h.g,h.cl||'',h.src].join(',')).join('\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['﻿' + csv], {type:'text/csv'}));
   a.download = 'Gender_por_Caja_' + new Date().toISOString().slice(0,10) + '.csv'; a.click();
