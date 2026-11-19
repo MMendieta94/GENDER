@@ -449,7 +449,7 @@ function buscar(){
   if (!c) return;
   $('caseIn').value = '';
   const items = DB.cases.get(c);
-  const fail = msg => { $('result').innerHTML = `<div class="msg warn">${msg}</div>` + manualBox(); wireManual(c); };
+  const fail = msg => { $('result').innerHTML = `<div class="msg warn">${msg}</div>`; $('caseIn').focus(); };
 
   if (!items) return fail(`El Case <b>${esc(c)}</b> no está en los archivos de ubicación cargados.`);
   const list = [...items];
